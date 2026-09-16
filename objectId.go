@@ -54,6 +54,15 @@ func (v *ObjectID) Pointer() *primitive.ObjectID {
 	return &v.current
 }
 
+// Original returns the value as it was when this ObjectID was loaded
+func (v ObjectID) Original() primitive.ObjectID {
+
+	// The baseline is captured at construction and at unmarshal, so this is the value the
+	// database still holds -- which is what an update needs in order to address the row, or
+	// to clean up whatever the old value pointed at.
+	return v.original
+}
+
 // NotChanged returns TRUE if the value has not changed since it was loaded
 func (v ObjectID) NotChanged() bool {
 	return v.current == v.original
