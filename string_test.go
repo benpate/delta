@@ -92,3 +92,15 @@ func TestString_Accessors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `"written through the pointer"`, string(encoded))
 }
+
+/******************************************
+ * BSON format guard
+ ******************************************/
+
+// String must satisfy both *Value BSON interfaces. It holds only unexported fields
+// and has no plain MarshalBSON to fall back on, so a type that stops satisfying
+// them is encoded by the default struct codec instead: a stored string becomes an empty document, with no error anywhere.
+var (
+	_ bson.ValueMarshaler   = String{}
+	_ bson.ValueUnmarshaler = &String{}
+)

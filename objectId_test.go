@@ -58,3 +58,15 @@ func TestObjectID_OriginalAfterUnmarshal(t *testing.T) {
 	require.Equal(t, stored, result.ParentID.Original(), "the value the database still holds")
 	require.True(t, result.ParentID.IsChanged())
 }
+
+/******************************************
+ * BSON format guard
+ ******************************************/
+
+// ObjectID must satisfy both *Value BSON interfaces. It holds only unexported fields
+// and has no plain MarshalBSON to fall back on, so a type that stops satisfying
+// them is encoded by the default struct codec instead: a stored ObjectID becomes an empty document, with no error anywhere.
+var (
+	_ bson.ValueMarshaler   = ObjectID{}
+	_ bson.ValueUnmarshaler = &ObjectID{}
+)

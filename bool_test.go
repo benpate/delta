@@ -52,3 +52,15 @@ func TestBool_OriginalAfterUnmarshal(t *testing.T) {
 	require.True(t, result.IsActive.Original(), "the value the database still holds")
 	require.True(t, result.IsActive.IsChanged())
 }
+
+/******************************************
+ * BSON format guard
+ ******************************************/
+
+// Bool must satisfy both *Value BSON interfaces. It holds only unexported fields
+// and has no plain MarshalBSON to fall back on, so a type that stops satisfying
+// them is encoded by the default struct codec instead: a stored `true` becomes an empty document, with no error anywhere.
+var (
+	_ bson.ValueMarshaler   = Bool{}
+	_ bson.ValueUnmarshaler = &Bool{}
+)
