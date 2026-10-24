@@ -16,7 +16,7 @@ type ObjectID struct {
 	original primitive.ObjectID
 }
 
-// NewObjectID returns a fully initialized Slice object
+// NewObjectID returns a ObjectID whose original and current values are both the given value
 func NewObjectID(value primitive.ObjectID) ObjectID {
 
 	return ObjectID{
@@ -82,13 +82,13 @@ func (v ObjectID) IsZero() bool {
  * Schema Interfaces
  ******************************************/
 
-// GetValue implements schema.ObjectIDGetter and returns the current value
+// GetValue implements schema.ValueGetter and returns the current value
 func (v ObjectID) GetValue() any {
 	return v.current
 }
 
-// SetValue implements schema.ObjectIDSetter and updates the current value,
-// tracking changes to the added and deleted lists.
+// SetValue implements schema.ValueSetter and updates the current value,
+// leaving the original value unchanged.
 func (v *ObjectID) SetValue(value any) error {
 
 	switch typed := value.(type) {
@@ -116,19 +116,25 @@ func (v *ObjectID) SetValue(value any) error {
  ******************************************/
 
 // MarshalJSON implements the json.Marshaler interface
-// and serializes the Slice into a JSON array
+// and serializes the current value as a JSON hex string
 func (v ObjectID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.current)
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
-// and deserializes the Slice from a JSON array
+// and sets both the original and current values from a JSON hex string
 func (v *ObjectID) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, &v.original); err != nil {
+
+	// Decode into a copy: mongo-driver writes hex into the ObjectID before it reaches an
+	// invalid character, so decoding in place would corrupt the baseline on failure
+	value := v.original
+
+	if err := json.Unmarshal(data, &value); err != nil {
 		return derp.Wrap(err, "delta.ObjectID.UnmarshalJSON", "Unable to unmarshal JSON data", data)
 	}
 
-	v.current = v.original
+	v.original = value
+	v.current = value
 	return nil
 }
 
