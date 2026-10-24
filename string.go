@@ -15,7 +15,7 @@ type String struct {
 	original string
 }
 
-// NewString returns a fully initialized Slice object
+// NewString returns a String whose original and current values are both the given value
 func NewString(value string) String {
 
 	return String{
@@ -76,13 +76,13 @@ func (v String) IsZero() bool {
  * Schema Interfaces
  ******************************************/
 
-// GetValue implements schema.StringGetter and returns the current value
+// GetValue implements schema.ValueGetter and returns the current value
 func (v String) GetValue() any {
 	return v.current
 }
 
-// SetValue implements schema.StringSetter and updates the current value,
-// tracking changes to the added and deleted lists.
+// SetValue implements schema.ValueSetter and updates the current value,
+// leaving the original value unchanged.
 func (v *String) SetValue(value any) error {
 	v.current = convert.String(value)
 	return nil
@@ -93,13 +93,13 @@ func (v *String) SetValue(value any) error {
  ******************************************/
 
 // MarshalJSON implements the json.Marshaler interface
-// and serializes the Slice into a JSON array
+// and serializes the current value as a JSON string
 func (v String) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.current)
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
-// and deserializes the Slice from a JSON array
+// and sets both the original and current values from a JSON string
 func (v *String) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &v.original); err != nil {
 		return derp.Wrap(err, "delta.String.UnmarshalJSON", "Unable to unmarshal JSON data", data)

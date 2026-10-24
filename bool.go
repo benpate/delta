@@ -15,7 +15,7 @@ type Bool struct {
 	original bool
 }
 
-// NewBool returns a fully initialized Slice object
+// NewBool returns a Bool whose original and current values are both the given value
 func NewBool(value bool) Bool {
 
 	return Bool{
@@ -86,13 +86,13 @@ func (v Bool) IsFalse() bool {
  * Schema Interfaces
  ******************************************/
 
-// GetValue implements schema.BoolGetter and returns the current value
+// GetValue implements schema.ValueGetter and returns the current value
 func (v Bool) GetValue() any {
 	return v.current
 }
 
-// SetValue implements schema.BoolSetter and updates the current value,
-// tracking changes to the added and deleted lists.
+// SetValue implements schema.ValueSetter and updates the current value,
+// leaving the original value unchanged.
 func (v *Bool) SetValue(value any) error {
 	v.current = convert.Bool(value)
 	return nil
@@ -103,13 +103,13 @@ func (v *Bool) SetValue(value any) error {
  ******************************************/
 
 // MarshalJSON implements the json.Marshaler interface
-// and serializes the Slice into a JSON array
+// and serializes the current value as a JSON boolean
 func (v Bool) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.current)
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
-// and deserializes the Slice from a JSON array
+// and sets both the original and current values from a JSON boolean
 func (v *Bool) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &v.original); err != nil {
 		return derp.Wrap(err, "delta.Bool.UnmarshalJSON", "Unable to unmarshal JSON data", data)
