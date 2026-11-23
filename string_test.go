@@ -104,3 +104,28 @@ var (
 	_ bson.ValueMarshaler   = String{}
 	_ bson.ValueUnmarshaler = &String{}
 )
+
+// TestString_Reset verifies that Reset moves the baseline to the current value, as a save does
+func TestString_Reset(t *testing.T) {
+
+	value := NewString("Sarah Connor")
+	value.Set("Sarah Reese")
+	require.True(t, value.IsChanged())
+	require.Equal(t, "Sarah Connor", value.Original())
+
+	value.Reset()
+
+	require.Equal(t, "Sarah Reese", value.Value(), "Reset does not change the value")
+	require.Equal(t, "Sarah Reese", value.Original())
+	require.False(t, value.IsChanged())
+	require.True(t, value.NotChanged())
+
+	// A second Reset changes nothing
+	value.Reset()
+	require.Equal(t, "Sarah Reese", value.Original())
+
+	// The next change is measured from the new baseline
+	value.Set("Sarah Connor")
+	require.True(t, value.IsChanged())
+	require.Equal(t, "Sarah Reese", value.Original())
+}

@@ -70,3 +70,26 @@ var (
 	_ bson.ValueMarshaler   = ObjectID{}
 	_ bson.ValueUnmarshaler = &ObjectID{}
 )
+
+// TestObjectID_Reset verifies that Reset moves the baseline to the current value, as a save does
+func TestObjectID_Reset(t *testing.T) {
+
+	first := primitive.NewObjectID()
+	second := primitive.NewObjectID()
+
+	value := NewObjectID(first)
+	value.Set(second)
+	require.True(t, value.IsChanged())
+	require.Equal(t, first, value.Original())
+
+	value.Reset()
+
+	require.Equal(t, second, value.Value(), "Reset does not change the value")
+	require.Equal(t, second, value.Original())
+	require.False(t, value.IsChanged())
+
+	// The next change is measured from the new baseline
+	value.Set(first)
+	require.True(t, value.IsChanged())
+	require.Equal(t, second, value.Original())
+}

@@ -64,3 +64,28 @@ var (
 	_ bson.ValueMarshaler   = Bool{}
 	_ bson.ValueUnmarshaler = &Bool{}
 )
+
+// TestBool_Reset verifies that Reset moves the baseline to the current value, as a save does
+func TestBool_Reset(t *testing.T) {
+
+	value := NewBool(false)
+	value.Set(true)
+	require.True(t, value.IsChanged())
+	require.Equal(t, false, value.Original())
+
+	value.Reset()
+
+	require.Equal(t, true, value.Value(), "Reset does not change the value")
+	require.Equal(t, true, value.Original())
+	require.False(t, value.IsChanged())
+	require.True(t, value.NotChanged())
+
+	// A second Reset changes nothing
+	value.Reset()
+	require.Equal(t, true, value.Original())
+
+	// The next change is measured from the new baseline
+	value.Set(false)
+	require.True(t, value.IsChanged())
+	require.Equal(t, true, value.Original())
+}

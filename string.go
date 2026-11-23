@@ -57,6 +57,11 @@ func (v String) Original() string {
 	return v.original
 }
 
+// Reset makes the current value the baseline, for a caller that has just saved it
+func (v *String) Reset() {
+	v.original = v.current
+}
+
 // NotChanged returns TRUE if the value has not changed since it was loaded
 func (v String) NotChanged() bool {
 	return v.current == v.original

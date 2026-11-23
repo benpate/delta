@@ -63,6 +63,11 @@ func (v ObjectID) Original() primitive.ObjectID {
 	return v.original
 }
 
+// Reset makes the current value the baseline, for a caller that has just saved it
+func (v *ObjectID) Reset() {
+	v.original = v.current
+}
+
 // NotChanged returns TRUE if the value has not changed since it was loaded
 func (v ObjectID) NotChanged() bool {
 	return v.current == v.original

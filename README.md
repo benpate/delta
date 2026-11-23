@@ -26,6 +26,7 @@ name.Original()  // "Sarah Connor" — what the database still holds
 
 The baseline is captured when the value is constructed *and* when it is unmarshaled, so a
 record freshly loaded from the database reads as unchanged until your code calls `Set`.
+After you save a record, call `Reset()` on each value to make the saved value the new baseline.
 
 ## Pull Requests Welcome
 
