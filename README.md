@@ -8,7 +8,7 @@
 
 ## Change-Tracking Value Wrappers for Go
 
-`delta` provides typed value wrappers (`Bool`, `String`, `ObjectID`) that remember their original value when loaded and can report whether they have changed since — and hand that original value back. This lets you tell which fields of a record were actually modified, and what they used to be: useful for writing minimal database updates, skipping no-op saves, or cleaning up whatever the previous value pointed at. Each wrapper marshals transparently to and from JSON and BSON, so it drops into existing data models without changing the wire format.
+`delta` provides typed value wrappers (`Bool`, `String`, `ObjectID`, and the generic `Slice[T]`) that remember their original value when loaded and can report whether they have changed since — and hand that original value back. This lets you tell which fields of a record were actually modified, and what they used to be: useful for writing minimal database updates, skipping no-op saves, or cleaning up whatever the previous value pointed at. Each wrapper marshals transparently to and from JSON and BSON, so it drops into existing data models without changing the wire format.
 
 ### Using delta
 
@@ -28,6 +28,24 @@ The baseline is captured when the value is constructed *and* when it is unmarsha
 record freshly loaded from the database reads as unchanged until your code calls `Set`.
 After you save a record, call `Reset()` on each value to make the saved value the new baseline.
 `Clear()` sets a value to the zero value for its type, and counts as a change like any other `Set`.
+
+### Tracking a list
+
+`Slice[T]` tracks a list of any comparable type, and reports what was added and deleted since it was loaded.
+
+```go
+targets := delta.NewSlice("mastodon", "bluesky")
+
+targets.Set([]string{"bluesky", "threads"})
+
+targets.IsChanged() // true
+targets.Added()     // ["threads"]
+targets.Deleted()   // ["mastodon"]
+targets.Unchanged() // ["bluesky"]
+targets.Original()  // ["mastodon", "bluesky"]
+```
+
+A change of order alone counts as a change, with nothing added or deleted. A `Slice` is stored as a plain JSON or BSON array. It also reads the `{values: [...]}` document that the older `rosetta/delta` package stored, and writes it back as a plain array.
 
 ## Pull Requests Welcome
 

@@ -12,8 +12,26 @@
 
 - **Mutating methods take a pointer receiver; readers take a value receiver.** `Set`/`Clear`/`Reset`/`SetValue`/`Pointer` are pointer methods; `Value`/`IsChanged`/`NotChanged`/`IsZero`/`GetValue` are value methods. Store these wrappers as addressable fields, not in a map, or `Set` won't stick.
 
+## `Slice` is a baseline and a current list, and its change lists are computed
+
+- **`Slice[T]` holds `current` and `original`, exactly as the scalars do.** `Added()`, `Deleted()`, and `Unchanged()` compare the two on every call. Nothing is recorded as the list is edited, so the lists always describe the difference from what was loaded, however many writes came between. rosetta's `delta.Slice`, which this replaces, kept `Added` and `Deleted` as fields and rebuilt them against the previous write.
+- **A reorder is a change, with nothing added or deleted.** `IsChanged` compares the two lists in order, because the stored value differs. The change lists count duplicates one pair at a time, so `[a]` to `[a, a]` adds one `a`.
+- **No method hands out or keeps the caller's memory.** `NewSlice`, `Set`, `SetValue`, and both decoders copy what they are given, and `Value`, `Original`, `GetValue`, and the change lists return copies that are never nil. `Pointer` is the one deliberate exception, for a caller that edits in place. `SetIndex` writes to a fresh copy for the same reason: a struct that holds a Slice and is copied by assignment (Emissary's `Stream.CopyFrom`) shares the list with its source.
+- **An empty Slice encodes as `[]`, never `null`,** in JSON and BSON, including the zero value. With `bson:",omitempty"` the driver calls `IsZero` and leaves an empty Slice out of the document.
+- **`SetValue` converts as loosely as rosetta's `convert` allows, and refuses only a value that is not a list.** The check runs before any state is written, so a refused write leaves the Slice untouched. Form widgets hand it a `*sliceof.String`, never a `[]T`; do not replace the conversion with a type assertion.
+- **`SetIndex` grows the list to any index, by design.** The schema's `maxLength` is the limit (Emissary BUG-116); do not add one here.
+- **`T` must be comparable at run time, not only at compile time.** The compiler accepts `Slice[any]`, but comparing two interface values that hold slices or maps panics. Use a concrete element type.
+
+## `Slice` reads a legacy BSON document, temporarily
+
+rosetta's `delta.Slice` had no BSON methods, so the driver stored it as `{values: [...]}`. `Slice.UnmarshalBSONValue` reads a BSON array, a null, or that document, and `MarshalBSONValue` always writes an array, so a legacy record heals when it is next saved.
+
+- **The legacy document is `values` and nothing else.** Any other key, a second key, or a `values` that is not an array or null is an error. `decodeBSONLegacy` is the whole of it.
+- **Both decoders check the length header and the null terminator themselves before the driver sees the bytes.** mongo-driver v1 panics on a document whose header disagrees with its data, and its `Elements()` accepts a document with no terminator, which the driver's own struct decoder refuses. `isSizedBSON` is that check; do not remove it. `FuzzSlice_UnmarshalBSONValue` and `FuzzSlice_UnmarshalBSONDocument` found both, and their inputs are kept in `testdata/fuzz`.
+- **Remove the legacy branch when Emissary's plan says so.** The condition and the steps are in `emissary-specs/projects/DELTA-CONSOLIDATION.md`. Removing it means deleting `decodeBSONLegacy`, `legacySliceKey`, and the `TypeEmbeddedDocument` case, and turning the legacy tests into refusals.
+
 ## Every wrapped type must keep satisfying the BSON `*Value` interfaces
 
-`Bool`, `ObjectID`, and `String` serialize through `MarshalBSONValue`/`UnmarshalBSONValue`, and none of them has a plain `MarshalBSON` to fall back on. Go satisfies those interfaces *structurally*, so a signature that drifts out of step with the driver's does not fail to compile at the method itself — the driver silently stops recognizing the type and encodes it with the default struct codec instead. Because every field here is unexported, that fallback writes `{}`: a stored `true` becomes an empty document, with no error on either side.
+`Bool`, `ObjectID`, `Slice`, and `String` serialize through `MarshalBSONValue`/`UnmarshalBSONValue`, and none of them has a plain `MarshalBSON` to fall back on. Go satisfies those interfaces *structurally*, so a signature that drifts out of step with the driver's does not fail to compile at the method itself — the driver silently stops recognizing the type and encodes it with the default struct codec instead. Because every field here is unexported, that fallback writes `{}`: a stored `true` becomes an empty document, with no error on either side.
 
 Each `*_test.go` therefore carries `var _ bson.ValueMarshaler = …` assertions, which turn that silent change into a build failure. They matter most for the mongo-driver v2 upgrade (BUG-122), where the interface signature itself changes from `(bsontype.Type, []byte, error)` to `(byte, []byte, error)`. Do not delete them, and add the same pair alongside any new wrapped type.
