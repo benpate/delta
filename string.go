@@ -33,6 +33,11 @@ func (v *String) Set(value string) {
 	v.current = value
 }
 
+// Clear sets the current value to the empty string, leaving the baseline as it was
+func (v *String) Clear() {
+	v.current = ""
+}
+
 // Value returns the value as a string
 func (v String) Value() string {
 	return v.current
@@ -55,6 +60,11 @@ func (v String) Original() string {
 	// database still holds -- which is what an update needs in order to address the row, or
 	// to clean up whatever the old value pointed at.
 	return v.original
+}
+
+// Reset makes the current value the baseline, for a caller that has just saved it
+func (v *String) Reset() {
+	v.original = v.current
 }
 
 // NotChanged returns TRUE if the value has not changed since it was loaded
@@ -101,11 +111,15 @@ func (v String) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements the json.Unmarshaler interface
 // and sets both the original and current values from a JSON string
 func (v *String) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, &v.original); err != nil {
+
+	// Decode into a zero value, so that a JSON null becomes the empty string
+	decoded := ""
+	if err := json.Unmarshal(data, &decoded); err != nil {
 		return derp.Wrap(err, "delta.String.UnmarshalJSON", "Unable to unmarshal JSON data", data)
 	}
 
-	v.current = v.original
+	v.original = decoded
+	v.current = decoded
 	return nil
 }
 

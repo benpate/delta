@@ -16,7 +16,7 @@ type ObjectID struct {
 	original primitive.ObjectID
 }
 
-// NewObjectID returns a ObjectID whose original and current values are both the given value
+// NewObjectID returns a fully initialized Slice object
 func NewObjectID(value primitive.ObjectID) ObjectID {
 
 	return ObjectID{
@@ -32,6 +32,11 @@ func NewObjectID(value primitive.ObjectID) ObjectID {
 // Set updates the current value
 func (v *ObjectID) Set(value primitive.ObjectID) {
 	v.current = value
+}
+
+// Clear sets the current value to the nil ObjectID, leaving the baseline as it was
+func (v *ObjectID) Clear() {
+	v.current = primitive.NilObjectID
 }
 
 // Value returns the value as a primitive.ObjectID
@@ -63,6 +68,11 @@ func (v ObjectID) Original() primitive.ObjectID {
 	return v.original
 }
 
+// Reset makes the current value the baseline, for a caller that has just saved it
+func (v *ObjectID) Reset() {
+	v.original = v.current
+}
+
 // NotChanged returns TRUE if the value has not changed since it was loaded
 func (v ObjectID) NotChanged() bool {
 	return v.current == v.original
@@ -82,32 +92,62 @@ func (v ObjectID) IsZero() bool {
  * Schema Interfaces
  ******************************************/
 
-// GetValue implements schema.ValueGetter and returns the current value
+// GetValue implements schema.ObjectIDGetter and returns the current value
 func (v ObjectID) GetValue() any {
 	return v.current
 }
 
-// SetValue implements schema.ValueSetter and updates the current value,
-// leaving the original value unchanged.
+// SetValue implements schema.ObjectIDSetter and updates the current value,
+// tracking changes to the added and deleted lists.
 func (v *ObjectID) SetValue(value any) error {
 
+	const location = "delta.ObjectID.SetValue"
+
 	switch typed := value.(type) {
+
+	case nil:
+		v.current = primitive.NilObjectID
+		return nil
 
 	case primitive.ObjectID:
 		v.current = typed
 		return nil
 
+	case *primitive.ObjectID:
+
+		// A nil pointer clears the value
+		if typed == nil {
+			v.current = primitive.NilObjectID
+			return nil
+		}
+
+		v.current = *typed
+		return nil
+
 	case string:
+
+		// An empty string clears the value
+		if typed == "" {
+			v.current = primitive.NilObjectID
+			return nil
+		}
 
 		objectID, err := primitive.ObjectIDFromHex(typed)
 		if err != nil {
-			return derp.Wrap(err, "delta.ObjectID.SetValue", "Unable to convert value to ObjectID", "value", value)
+			return derp.Wrap(err, location, "Unable to convert value to ObjectID", "value", value)
 		}
 		v.current = objectID
 		return nil
 
 	default:
-		return v.SetValue(convert.String(value))
+
+		// RULE: A value that has no string form is rejected, not read as empty
+		text, isLossless := convert.StringOk(value, "")
+		if (text == "") && !isLossless {
+			return derp.BadRequest(location, "Unable to convert value to ObjectID", "value", value)
+		}
+
+		return v.SetValue(text)
 	}
 }
 
@@ -116,25 +156,37 @@ func (v *ObjectID) SetValue(value any) error {
  ******************************************/
 
 // MarshalJSON implements the json.Marshaler interface
-// and serializes the current value as a JSON hex string
+// and serializes the Slice into a JSON array
 func (v ObjectID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.current)
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
-// and sets both the original and current values from a JSON hex string
+// and deserializes the Slice from a JSON array
 func (v *ObjectID) UnmarshalJSON(data []byte) error {
 
-	// Decode into a copy: mongo-driver writes hex into the ObjectID before it reaches an
-	// invalid character, so decoding in place would corrupt the baseline on failure
-	value := v.original
+	const location = "delta.ObjectID.UnmarshalJSON"
 
-	if err := json.Unmarshal(data, &value); err != nil {
-		return derp.Wrap(err, "delta.ObjectID.UnmarshalJSON", "Unable to unmarshal JSON data", data)
+	// RULE: Only a JSON string or null is accepted. A null leaves the hex string empty.
+	hex := ""
+	if err := json.Unmarshal(data, &hex); err != nil {
+		return derp.Wrap(err, location, "Unable to unmarshal JSON data", data)
 	}
 
-	v.original = value
-	v.current = value
+	// An empty string or a null becomes the nil ObjectID
+	decoded := primitive.NilObjectID
+
+	// RULE: Any other string must be exactly 24 hex characters
+	if hex != "" {
+		parsed, err := primitive.ObjectIDFromHex(hex)
+		if err != nil {
+			return derp.Wrap(err, location, "ObjectID must be a 24-character hex string", data)
+		}
+		decoded = parsed
+	}
+
+	v.original = decoded
+	v.current = decoded
 	return nil
 }
 
