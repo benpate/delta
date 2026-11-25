@@ -16,7 +16,7 @@ type ObjectID struct {
 	original primitive.ObjectID
 }
 
-// NewObjectID returns a fully initialized Slice object
+// NewObjectID returns an ObjectID whose original and current values are both the given value
 func NewObjectID(value primitive.ObjectID) ObjectID {
 
 	return ObjectID{
@@ -62,9 +62,9 @@ func (v *ObjectID) Pointer() *primitive.ObjectID {
 // Original returns the value as it was when this ObjectID was loaded
 func (v ObjectID) Original() primitive.ObjectID {
 
-	// The baseline is captured at construction and at unmarshal, so this is the value the
-	// database still holds -- which is what an update needs in order to address the row, or
-	// to clean up whatever the old value pointed at.
+	// The baseline moves only at construction, unmarshal, and Reset, so this is the value
+	// the database still holds -- which is what an update needs in order to address the row,
+	// or to clean up whatever the old value pointed at.
 	return v.original
 }
 
@@ -92,13 +92,13 @@ func (v ObjectID) IsZero() bool {
  * Schema Interfaces
  ******************************************/
 
-// GetValue implements schema.ObjectIDGetter and returns the current value
+// GetValue implements schema.ValueGetter and returns the current value
 func (v ObjectID) GetValue() any {
 	return v.current
 }
 
-// SetValue implements schema.ObjectIDSetter and updates the current value,
-// tracking changes to the added and deleted lists.
+// SetValue implements schema.ValueSetter and updates the current value from an ObjectID
+// or a hex string. An empty value clears it, and the original value is unchanged.
 func (v *ObjectID) SetValue(value any) error {
 
 	const location = "delta.ObjectID.SetValue"
@@ -156,13 +156,13 @@ func (v *ObjectID) SetValue(value any) error {
  ******************************************/
 
 // MarshalJSON implements the json.Marshaler interface
-// and serializes the Slice into a JSON array
+// and serializes the current value as a JSON hex string
 func (v ObjectID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.current)
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
-// and deserializes the Slice from a JSON array
+// and sets both the original and current values from a JSON hex string or null
 func (v *ObjectID) UnmarshalJSON(data []byte) error {
 
 	const location = "delta.ObjectID.UnmarshalJSON"

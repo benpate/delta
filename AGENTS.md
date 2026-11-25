@@ -1,34 +1,40 @@
 # delta — Notes for AI Agents
 
-- **The "original" baseline is captured at construction *and* at unmarshal, and moves at a save only when the caller says so.** `NewString(v)` sets `original = current = v`, and `UnmarshalJSON`/`UnmarshalBSONValue` reset `original` to the freshly-decoded value. So a record loaded from the database reads as `IsChanged() == false` until application code calls `Set`. After a save, call `Reset()` to make the saved value the baseline. Nothing calls it for you, so a record that is saved twice without a `Reset` still compares against the value it was loaded with.
+See [README.md](README.md) for what delta is. One file per type (`bool.go`, `string.go`, `objectId.go`, `slice.go`), each with a `_test.go` beside it. These are the rules that the code does not show.
 
-- **Unmarshal sets `original` and `current` together, and only on success.** The BSON decoders populate `original` first and mirror it into `current`. The JSON decoders decode into a local zero value and assign both fields afterwards, for two reasons: a JSON `null` then becomes the zero value for the type, and a decode that fails part-way cannot leave a corrupted baseline behind (the driver's `primitive.ObjectID.UnmarshalJSON` writes the valid prefix of a hex string before rejecting the rest). If you add a new wrapped type, follow the same pattern or change-tracking will be wrong from the first load. The `Fuzz*_Unmarshal*` targets check it.
+## The baseline
 
-- **A failed unmarshal must change neither value, so `ObjectID.UnmarshalJSON` decodes into a copy.** mongo-driver's `primitive.ObjectID.UnmarshalJSON` hex-decodes straight into the ID and stops at the first bad character, so decoding into `original` in place left a failed decode with a baseline half old bytes and half new. `Bool` and `String` cannot be partially written, so they still decode in place. Every type's tests and fuzz targets pin the rule; keep it for any new type.
+- **`original` moves at construction, at a successful unmarshal, and at `Reset`. Nowhere else.** A record loaded from the database reads as `IsChanged() == false` until application code writes to it. Nothing calls `Reset` for you, so a record saved twice without one still compares against the value it was loaded with.
+- **`Original()` is the stored value, not the previous one.** It answers "what does the database still hold", which an update needs to address the old row or clean up whatever the old value pointed at. Calling `Set` twice never makes it return the intermediate value.
+- **`Set`, `Clear`, `SetValue`, and `SetIndex` write `current` only.** `Clear` is a change like any other, unless the baseline was already the zero value.
+- **Mutating methods take a pointer receiver; readers take a value receiver.** Store a wrapper as an addressable struct field, not as a map value, or `Set` will not stick.
 
-- **A JSON `null` discards a pending edit without an error.** Decoding `null` leaves `original` alone, and the copy into `current` then throws away whatever `Set` wrote. The tests pin this for all three types.
+## Unmarshalling
 
-- **mongo-driver copies any 12-byte JSON input straight into an ObjectID.** Its `UnmarshalJSON` checks `len == 12` before reading the input as JSON, so a 10-character JSON string like `"abcdefghij"` decodes to its own raw bytes, quotes included, rather than failing. `TestObjectID_JSON` pins it; it is the driver's behavior, not this package's.
+- **Unmarshal sets `original` and `current` together, and only on success.** A failed decode must change neither. Every type's tests and `Fuzz*_Unmarshal*` targets check it; keep the rule for any new type.
+- **Every JSON decoder, and both `Slice` decoders, decode into a local value and assign afterwards.** Decoding in place is unsafe wherever a decoder can write part of a value before it fails. The scalar BSON decoders still decode into `original` in place and then copy to `current`; their tests show that a failure leaves `original` alone.
+- **A JSON `null` becomes the zero value for both fields, and discards a pending edit without an error.** That is `false`, `""`, the nil ObjectID, or the empty list. Decoding into a local zero value is what makes this so; decoding in place would leave the old value behind.
 
-- **`String.SetValue` formats numbers through rosetta's `convert.String`.** A whole-number float is written without decimals (`150`, since rosetta v0.46.0), and any other float is rounded to two (`33.33`). `TestString_SetValue` pins both, so a rosetta change fails here first.
+## `ObjectID`
 
-- **`Original()` reads the baseline, and it is the *stored* value, not the previous one.** It answers "what does the database still hold", which is what an update needs to address the old row or clean up whatever the old value pointed at. Because the baseline only moves at construction and unmarshal (above), calling `Set` twice does not make `Original()` return the intermediate value — it still returns what was loaded.
+- **`ObjectID` JSON is a hex string and nothing else.** It decodes only from 24 hex characters, an empty string, or `null` (the last two become the nil ObjectID). It does not use the driver's decoder, which also accepts extended JSON (`{"$oid": …}`) and copies any 12-byte input verbatim; both are errors here.
+- **The BSON path does use the driver's decoder, and it is looser.** It accepts an ObjectID, a null, a hex string in either case, and a 12-character string, which it reads as raw bytes. `TestObjectID_UnmarshalBSONValue` records what is accepted.
+- **`ObjectID.SetValue` treats an empty input as "clear".** `nil`, `""`, an empty byte slice, and a nil `*primitive.ObjectID` all set the nil ObjectID. A value with no string form (a struct, a `*string`) is an error, so that an unconvertible input is not mistaken for an empty one.
 
-- **`ObjectID` JSON is a hex string and nothing else.** It encodes as 24 lowercase hex characters, and decodes only from 24 hex characters, an empty string, or `null` (the last two become the nil ObjectID). It does not delegate to the driver's decoder, which also accepts extended JSON (`{"$oid": …}`) and copies any 12-byte input verbatim; both are errors here.
+## `String` and `Bool`
 
-- **`ObjectID.SetValue` treats an empty input as "clear".** `nil`, `""`, an empty byte slice, and a nil `*primitive.ObjectID` all set the nil ObjectID. A value with no string form at all (a struct, a `*string`) is still an error, so that an unconvertible input is not mistaken for an empty one.
+- **`String.SetValue` formats numbers through rosetta's `convert.String`.** A whole-number float is written without decimals (`150`, since rosetta v0.46.0), and any other float is rounded to two (`33.33`). `TestString_SetValue` checks both, so a rosetta change fails here first.
+- **`Bool.SetValue` and `String.SetValue` never return an error.** They convert whatever they are given, so a value that cannot be converted becomes the zero value.
 
-- **`Original()` reads the baseline, and it is the *stored* value, not the previous one.** It answers "what does the database still hold", which is what an update needs to address the old row or clean up whatever the old value pointed at. Because the baseline only moves at construction, at unmarshal, and at `Reset` (above), calling `Set` twice does not make `Original()` return the intermediate value — it still returns what was loaded.
+## `Slice`
 
-- **Mutating methods take a pointer receiver; readers take a value receiver.** `Set`/`Clear`/`Reset`/`SetValue`/`Pointer` are pointer methods; `Value`/`IsChanged`/`NotChanged`/`IsZero`/`GetValue` are value methods. Store these wrappers as addressable fields, not in a map, or `Set` won't stick.
-
-## `Slice` is a baseline and a current list, and its change lists are computed
-
-- **`Slice[T]` holds `current` and `original`, exactly as the scalars do.** `Added()`, `Deleted()`, and `Unchanged()` compare the two on every call. Nothing is recorded as the list is edited, so the lists always describe the difference from what was loaded, however many writes came between. rosetta's `delta.Slice`, which this replaces, kept `Added` and `Deleted` as fields and rebuilt them against the previous write.
+- **`Slice[T]` holds `current` and `original`, as the scalars do, and computes its change lists on every call.** Nothing is recorded as the list is edited, so `Added()`, `Deleted()`, and `Unchanged()` always describe the difference from the baseline, however many writes came between.
 - **A reorder is a change, with nothing added or deleted.** `IsChanged` compares the two lists in order, because the stored value differs. The change lists count duplicates one pair at a time, so `[a]` to `[a, a]` adds one `a`.
-- **No method hands out or keeps the caller's memory.** `NewSlice`, `Set`, `SetValue`, and both decoders copy what they are given, and `Value`, `Original`, `GetValue`, and the change lists return copies that are never nil. `Pointer` is the one deliberate exception, for a caller that edits in place. `SetIndex` writes to a fresh copy for the same reason: a struct that holds a Slice and is copied by assignment (Emissary's `Stream.CopyFrom`) shares the list with its source.
+- **No method hands out or keeps the caller's memory.** `NewSlice`, `Set`, `SetValue`, and both decoders copy what they are given. `Value`, `Original`, `GetValue`, and the change lists return copies that are never nil. `Pointer` is the one deliberate exception, for a caller that edits in place.
+- **`SetIndex` writes to a fresh copy.** A struct that holds a Slice and is copied by assignment (Emissary's `Stream.CopyFrom`) shares the list with its source, so a write in place would change both.
 - **An empty Slice encodes as `[]`, never `null`,** in JSON and BSON, including the zero value. With `bson:",omitempty"` the driver calls `IsZero` and leaves an empty Slice out of the document.
-- **`SetValue` converts as loosely as rosetta's `convert` allows, and refuses only a value that is not a list.** The check runs before any state is written, so a refused write leaves the Slice untouched. Form widgets hand it a `*sliceof.String`, never a `[]T`; do not replace the conversion with a type assertion.
+- **`SetValue` accepts whatever rosetta's `convert.SliceOfAnyOk` reads as a list, and that includes a bare scalar.** A `string`, `int`, or `bool` becomes a list of one. Form widgets hand it a `*sliceof.String`, never a `[]T`, so do not replace the conversion with a type assertion. The check runs before any state is written, so a refused value leaves the Slice untouched.
+- **`SetValue` keeps a lossy conversion.** An item that cannot become a `T` is stored as the zero value, not refused. `TestSlice_SetValue`, `TestSlice_SetValueInt`, and `TestSlice_SetValueRefused` record the whole surface, including rosetta's oddities (an `int32` is refused, and `"4,5"` splits into two ints).
 - **`SetIndex` grows the list to any index, by design.** The schema's `maxLength` is the limit (Emissary BUG-116); do not add one here.
 - **`T` must be comparable at run time, not only at compile time.** The compiler accepts `Slice[any]`, but comparing two interface values that hold slices or maps panics. Use a concrete element type.
 
@@ -37,11 +43,20 @@
 rosetta's `delta.Slice` had no BSON methods, so the driver stored it as `{values: [...]}`. `Slice.UnmarshalBSONValue` reads a BSON array, a null, or that document, and `MarshalBSONValue` always writes an array, so a legacy record heals when it is next saved.
 
 - **The legacy document is `values` and nothing else.** Any other key, a second key, or a `values` that is not an array or null is an error. `decodeBSONLegacy` is the whole of it.
-- **Both decoders check the length header and the null terminator themselves before the driver sees the bytes.** mongo-driver v1 panics on a document whose header disagrees with its data, and its `Elements()` accepts a document with no terminator, which the driver's own struct decoder refuses. `isSizedBSON` is that check; do not remove it. `FuzzSlice_UnmarshalBSONValue` and `FuzzSlice_UnmarshalBSONDocument` found both, and their inputs are kept in `testdata/fuzz`.
+- **`isSizedBSON` checks the length header and the null terminator before the driver sees the bytes. Do not remove it.** mongo-driver v1 panics on a document whose header disagrees with its data, and its `Elements()` accepts a document with no terminator. `FuzzSlice_UnmarshalBSONValue` and `FuzzSlice_UnmarshalBSONDocument` found both, and their inputs are kept in `testdata/fuzz`.
 - **Remove the legacy branch when Emissary's plan says so.** The condition and the steps are in `emissary-specs/projects/DELTA-CONSOLIDATION.md`. Removing it means deleting `decodeBSONLegacy`, `legacySliceKey`, and the `TypeEmbeddedDocument` case, and turning the legacy tests into refusals.
 
-## Every wrapped type must keep satisfying the BSON `*Value` interfaces
+## Every type must keep satisfying the BSON `*Value` interfaces
 
-`Bool`, `ObjectID`, `Slice`, and `String` serialize through `MarshalBSONValue`/`UnmarshalBSONValue`, and none of them has a plain `MarshalBSON` to fall back on. Go satisfies those interfaces *structurally*, so a signature that drifts out of step with the driver's does not fail to compile at the method itself — the driver silently stops recognizing the type and encodes it with the default struct codec instead. Because every field here is unexported, that fallback writes `{}`: a stored `true` becomes an empty document, with no error on either side.
+- **A method signature that drifts from the driver's fails silently.** `Bool`, `ObjectID`, `Slice`, and `String` serialize through `MarshalBSONValue`/`UnmarshalBSONValue`, with no `MarshalBSON` to fall back on. Go satisfies those interfaces structurally, so a mismatch still compiles, and the driver encodes the type with its default struct codec. Every field is unexported, so that writes `{}` with no error on either side.
+- **The `var _ bson.ValueMarshaler = …` assertions in each `_test.go` turn that into a build failure. Do not delete them.** They matter most for the mongo-driver v2 upgrade (BUG-122), where the signature changes from `(bsontype.Type, []byte, error)` to `(byte, []byte, error)`.
 
-Each `*_test.go` therefore carries `var _ bson.ValueMarshaler = …` assertions, which turn that silent change into a build failure. They matter most for the mongo-driver v2 upgrade (BUG-122), where the interface signature itself changes from `(bsontype.Type, []byte, error)` to `(byte, []byte, error)`. Do not delete them, and add the same pair alongside any new wrapped type.
+## Adding a type
+
+- **Copy the shape of an existing type.** That means `current` and `original` fields, the same method set and receiver kinds, decoders that follow the Unmarshalling rules above, and the interface assertions in the test file.
+- **Update the type lists in `doc.go`, `README.md`, and this file in the same change.**
+
+## Tests and gates
+
+- **The package is at 100% statement coverage, and each type has `Fuzz*` targets with seeds in `testdata/fuzz`.** A seed file there is a regression test for a defect the fuzzer found; do not delete one.
+- **Nilaway runs over the test files in CI.** It cannot see that `slices.Clone` or `cloneSlice` returned a non-empty list, so assert the length (`require.Len`, `require.Greater`) before indexing one in a test.

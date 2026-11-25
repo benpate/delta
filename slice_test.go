@@ -868,14 +868,17 @@ func TestSlice_UnmarshalBSONValueRefused(t *testing.T) {
 
 	// The right length and terminator, around an item whose own length is wrong
 	badItem := slices.Clone(array)
+	require.Greater(t, len(badItem), 7)
 	badItem[7] = 0x7f
 	checkBytes("array, item length too long", bson.TypeArray, badItem)
 
 	badType := slices.Clone(array)
+	require.Greater(t, len(badType), 4)
 	badType[4] = 0x7f
 	checkBytes("array, unknown item type", bson.TypeArray, badType)
 
 	legacyNoTerminator := slices.Clone(document)
+	require.NotEmpty(t, legacyNoTerminator)
 	legacyNoTerminator[len(legacyNoTerminator)-1] = '0'
 	checkBytes("document, terminator is not null", bson.TypeEmbeddedDocument, legacyNoTerminator)
 
@@ -1093,6 +1096,7 @@ func TestCloneSlice(t *testing.T) {
 
 	original := []string{"a", "b"}
 	clone := cloneSlice(original)
+	require.Len(t, clone, 2)
 	clone[0] = "changed"
 	require.Equal(t, []string{"a", "b"}, original)
 

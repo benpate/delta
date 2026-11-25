@@ -56,9 +56,9 @@ func (v *String) Pointer() *string {
 // Original returns the value as it was when this String was loaded
 func (v String) Original() string {
 
-	// The baseline is captured at construction and at unmarshal, so this is the value the
-	// database still holds -- which is what an update needs in order to address the row, or
-	// to clean up whatever the old value pointed at.
+	// The baseline moves only at construction, unmarshal, and Reset, so this is the value
+	// the database still holds -- which is what an update needs in order to address the row,
+	// or to clean up whatever the old value pointed at.
 	return v.original
 }
 

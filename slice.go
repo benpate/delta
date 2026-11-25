@@ -115,8 +115,8 @@ func (v Slice[T]) GetValue() any {
 	return cloneSlice(v.current)
 }
 
-// SetValue implements schema.ValueSetter and updates the current list.
-// It converts loosely, and returns an error for a value that is not a list.
+// SetValue implements schema.ValueSetter and updates the current list. It converts loosely,
+// and returns an error for a value that rosetta cannot read as a list.
 func (v *Slice[T]) SetValue(value any) error {
 
 	const location = "delta.Slice.SetValue"
