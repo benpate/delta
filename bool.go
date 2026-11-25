@@ -33,6 +33,11 @@ func (v *Bool) Set(value bool) {
 	v.current = value
 }
 
+// Clear sets the current value to false, leaving the baseline as it was
+func (v *Bool) Clear() {
+	v.current = false
+}
+
 // Value returns the value as a bool
 func (v Bool) Value() bool {
 	return v.current
@@ -116,11 +121,15 @@ func (v Bool) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements the json.Unmarshaler interface
 // and deserializes the Slice from a JSON array
 func (v *Bool) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, &v.original); err != nil {
+
+	// Decode into a zero value, so that a JSON null becomes false
+	decoded := false
+	if err := json.Unmarshal(data, &decoded); err != nil {
 		return derp.Wrap(err, "delta.Bool.UnmarshalJSON", "Unable to unmarshal JSON data", data)
 	}
 
-	v.current = v.original
+	v.original = decoded
+	v.current = decoded
 	return nil
 }
 

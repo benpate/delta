@@ -34,6 +34,11 @@ func (v *ObjectID) Set(value primitive.ObjectID) {
 	v.current = value
 }
 
+// Clear sets the current value to the nil ObjectID, leaving the baseline as it was
+func (v *ObjectID) Clear() {
+	v.current = primitive.NilObjectID
+}
+
 // Value returns the value as a primitive.ObjectID
 func (v ObjectID) Value() primitive.ObjectID {
 	return v.current
@@ -96,23 +101,53 @@ func (v ObjectID) GetValue() any {
 // tracking changes to the added and deleted lists.
 func (v *ObjectID) SetValue(value any) error {
 
+	const location = "delta.ObjectID.SetValue"
+
 	switch typed := value.(type) {
+
+	case nil:
+		v.current = primitive.NilObjectID
+		return nil
 
 	case primitive.ObjectID:
 		v.current = typed
 		return nil
 
+	case *primitive.ObjectID:
+
+		// A nil pointer clears the value
+		if typed == nil {
+			v.current = primitive.NilObjectID
+			return nil
+		}
+
+		v.current = *typed
+		return nil
+
 	case string:
+
+		// An empty string clears the value
+		if typed == "" {
+			v.current = primitive.NilObjectID
+			return nil
+		}
 
 		objectID, err := primitive.ObjectIDFromHex(typed)
 		if err != nil {
-			return derp.Wrap(err, "delta.ObjectID.SetValue", "Unable to convert value to ObjectID", "value", value)
+			return derp.Wrap(err, location, "Unable to convert value to ObjectID", "value", value)
 		}
 		v.current = objectID
 		return nil
 
 	default:
-		return v.SetValue(convert.String(value))
+
+		// RULE: A value that has no string form is rejected, not read as empty
+		text, isLossless := convert.StringOk(value, "")
+		if (text == "") && !isLossless {
+			return derp.BadRequest(location, "Unable to convert value to ObjectID", "value", value)
+		}
+
+		return v.SetValue(text)
 	}
 }
 
@@ -129,11 +164,29 @@ func (v ObjectID) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements the json.Unmarshaler interface
 // and deserializes the Slice from a JSON array
 func (v *ObjectID) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, &v.original); err != nil {
-		return derp.Wrap(err, "delta.ObjectID.UnmarshalJSON", "Unable to unmarshal JSON data", data)
+
+	const location = "delta.ObjectID.UnmarshalJSON"
+
+	// RULE: Only a JSON string or null is accepted. A null leaves the hex string empty.
+	hex := ""
+	if err := json.Unmarshal(data, &hex); err != nil {
+		return derp.Wrap(err, location, "Unable to unmarshal JSON data", data)
 	}
 
-	v.current = v.original
+	// An empty string or a null becomes the nil ObjectID
+	decoded := primitive.NilObjectID
+
+	// RULE: Any other string must be exactly 24 hex characters
+	if hex != "" {
+		parsed, err := primitive.ObjectIDFromHex(hex)
+		if err != nil {
+			return derp.Wrap(err, location, "ObjectID must be a 24-character hex string", data)
+		}
+		decoded = parsed
+	}
+
+	v.original = decoded
+	v.current = decoded
 	return nil
 }
 

@@ -33,6 +33,11 @@ func (v *String) Set(value string) {
 	v.current = value
 }
 
+// Clear sets the current value to the empty string, leaving the baseline as it was
+func (v *String) Clear() {
+	v.current = ""
+}
+
 // Value returns the value as a string
 func (v String) Value() string {
 	return v.current
@@ -106,11 +111,15 @@ func (v String) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements the json.Unmarshaler interface
 // and deserializes the Slice from a JSON array
 func (v *String) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, &v.original); err != nil {
+
+	// Decode into a zero value, so that a JSON null becomes the empty string
+	decoded := ""
+	if err := json.Unmarshal(data, &decoded); err != nil {
 		return derp.Wrap(err, "delta.String.UnmarshalJSON", "Unable to unmarshal JSON data", data)
 	}
 
-	v.current = v.original
+	v.original = decoded
+	v.current = decoded
 	return nil
 }
 
